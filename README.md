@@ -219,7 +219,7 @@ ruff check app scripts tests             # clean
 
 ```
              ┌──────────────┐
-  traffic ──▶│  FastAPI     │  app/api
+traffic ──▶ | │  FastAPI  │ | app/api
              └──────┬───────┘
                     │  blocking work → threadpool
              ┌──────▼────────────────┐
