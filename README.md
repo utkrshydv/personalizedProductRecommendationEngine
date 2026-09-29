@@ -8,17 +8,163 @@ offline ranking metrics rather than by assertion.
 Python 3.10+ · FastAPI · Scikit-learn · Pandas · SciPy · MongoDB (pymongo)
 ```
 
-**Read this first.** The dataset is synthetic. It was built with genuine latent
-structure — per-user category taste, attribute taste, price-band affinity, and
-Zipf-distributed popularity — so the *comparison between strategies* is
-meaningful and the methodology will transfer to real data. The *absolute
-numbers* will not; treat them as a smoke test that the pipeline works, not as a
-performance claim. See [Honest limitations](#honest-limitations) before quoting
-any figure.
+---
+
+## In plain terms
+
+> This section is the conceptual overview — what problem is being solved, why
+> there are four approaches, and how any of it is verified. Everything below it
+> is the technical detail: architecture, model internals, metrics, and the full
+> results table.
+
+### The problem
+
+Consider an online store. It holds 800 products, and it holds a log of what each
+shopper has done: viewed, added to basket, wishlisted, bought.
+
+Someone buys **Nike Air Running Shoes — breathable, blue**.
+
+The question the system answers is: *of these 800 products, which other ten
+should this person be shown?*
+
+This is not a lookup. It is a judgement, made 800-to-10, and the answer is
+worth money in both directions: showing the right ten converts, showing the same
+ten popular products to everyone wastes the catalogue and eventually starves the
+long tail of products nobody ever sees.
+
+There are two fundamentally different ways to make that judgement, and this
+project implements both.
+
+### The two ways of guessing
+
+#### 1. Compare the products themselves
+
+The shoes are breathable, blue, running shoes, and priced within a range the
+shopper has historically bought from. So show them more breathable blue running
+shoes.
+
+Formally: every product is converted into a vector of numbers derived from its
+text and attributes, and the products most similar to what the shopper already
+bought are surfaced. Called **content-based filtering**.
+
+Its strength: **it works on a product nobody has bought yet.** A newly listed
+item has no purchase history, but its description, category, brand and price are
+known immediately. This method can rank it on day one.
+
+#### 2. Compare the people
+
+Four hundred other shoppers who bought those shoes also bought a particular
+water bottle. So this person probably wants the water bottle.
+
+Formally: products that repeatedly appear together across many shoppers are
+treated as related, and shoppers are shown what related products other similar
+shoppers chose. Called **collaborative filtering**.
+
+Its strength: **it is more accurate**, because observed behaviour beats
+description. A product's text is written by a marketer; its purchase history is
+not.
+
+Its weakness: a product that launched yesterday has no history, so this method
+knows nothing about it at all.
+
+#### 3. The deliberately unsophisticated one
+
+Show everyone the most popular products, ignoring who they are.
+
+This is included on purpose. It is a **control**, and it is the fastest way to
+detect a personalised model that has quietly degenerated into something that
+just ranks by date or by recency. If a sophisticated model cannot beat "most
+popular", it is not personalising anything, and the fact would otherwise be
+invisible in the output.
+
+#### 4. The combination
+
+The first method is strong where the second is blind; the second is strong
+where the first is merely adequate. The service runs both and fuses their
+rankings into a single list, so the result inherits the accuracy of behaviour
+without giving up the long-tail reach of product description.
+
+Because these two methods fail in *different* circumstances rather than one
+dominating the other, combining them is worth doing, and it is the strategy the
+service uses by default.
+
+### How we know whether any of it works
+
+A recommender is easy to build and easy to fool yourself about. This is the part
+of the project that matters most, so it is worth being precise about.
+
+**The method.** Take each shopper's most recent few purchases and hide them.
+Build the model using everything else. Then ask a direct question: did the model
+place those hidden purchases inside its top ten? Repeat across every shopper and
+average. That is a score, and it can be computed for each of the four strategies
+and printed side by side.
+
+**Why the recent purchases, and not a random few.** This is the single most
+important subtlety in the whole project. If a random handful of purchases is
+hidden, the model can still see the future: the shopper browsed the same
+product two days *after* the hidden purchase, and that browsing is still in the
+training data. The model effectively memorised the answer before being tested on
+it. Every score comes out inflated, and nothing in the output looks wrong.
+
+The fix is to cut each shopper's training data at the point where their hidden
+purchases begin, so the model only ever sees the past. This was implemented
+incorrectly in the first version of this project, and it is now a test that
+fails if the behaviour ever regresses.
+
+**Why the results are split by shopper type.** Averaging everyone into one number
+destroys the most useful information. Shoppers with a long history and shoppers
+with almost none are different problems, and the best method for one is often not
+the best method for the other. When averaged, their opposite results cancel and
+the two leading methods look like a tie.
+
+Reported separately, it becomes clear that the combined strategy genuinely wins
+for near-new shoppers, while the purely behavioural method is better for
+established ones. The blended average would have concealed exactly the finding
+that justifies building a combined system at all.
+
+### The live service
+
+The engine is exposed as a web service. A request asks for ten products for a
+given shopper and returns a ranked list in a few milliseconds.
+
+One design detail is worth calling out, because it is the clearest practical
+difference between the two main methods. When a shopper buys something, the
+content-based model updates **immediately**, with no retraining: its profile is
+a running average of everything that shopper has interacted with, so recording
+a new purchase is literally adding one more term to an average. The
+collaborative model cannot do this — its picture of the shopper is baked into a
+matrix computed at training time, and it stays stale until the whole model is
+rebuilt.
+
+That is the real reason both methods are kept. The first is cheap and immediate
+but approximate; the second is accurate but needs periodic rebuilding. Used
+together, each covers the other's blind spot.
+
+### What this project does not have
+
+Stated up front, because the numbers below are easy to over-read.
+
+**The store is invented.** No real product or customer data was available, so
+the catalogue and the entire shopping history are generated. They are generated
+with deliberate realism — each shopper has consistent preferences, prices follow
+a realistic distribution, and popular products genuinely attract more shoppers —
+so the *comparison between the four strategies* is meaningful and the evaluation
+methodology transfers to real data unchanged. The *absolute scores do not*, and
+should not be quoted as a performance claim. They indicate that the pipeline is
+built correctly, not that a real shop would see these results.
+
+Also absent: any way to load real product data, authentication and rate
+limiting, and any online or A/B evaluation. This is research code behind a
+production-shaped interface, not a service to point at customers. The full list
+is in [Honest limitations](#honest-limitations).
 
 ---
 
-## Contents
+## Technical detail
+
+The remainder of this document covers implementation: the architecture, how each
+model is constructed, the evaluation harness, measured results, the API surface,
+and the design trade-offs taken.
 
 - [Quick start](#quick-start)
 - [Architecture](#architecture)
@@ -33,7 +179,7 @@ any figure.
 
 ---
 
-## Quick start
+### Quick start
 
 ```bash
 pip install -r requirements.txt
@@ -69,7 +215,7 @@ ruff check app scripts tests             # clean
 
 ---
 
-## Architecture
+### Architecture
 
 ```
              ┌──────────────┐
@@ -122,9 +268,9 @@ which is why the pipeline can be exercised headlessly with no HTTP server.
 
 ---
 
-## The models
+### The models
 
-### `content` — content-based
+#### `content` — content-based
 
 A user's taste is a **profile vector**: the recency-weighted centroid of the
 feature vectors of items they interacted with. Scoring is cosine similarity
@@ -151,7 +297,7 @@ Because the profile is an order-free weighted sum, absorbing a new event is a
 single vector add. That is what makes the real-time path in
 `RecommenderService.record_event` possible without retraining.
 
-### `collaborative` — item-item kNN + Truncated SVD
+#### `collaborative` — item-item kNN + Truncated SVD
 
 Two estimators on the same implicit matrix, min-max normalised per user and
 blended with `knn_weight`:
@@ -165,17 +311,17 @@ blended with `knn_weight`:
   with every item factor. Generalises across sparse items where kNN has no
   co-occurrence evidence at all.
 
-### `hybrid` — Reciprocal Rank Fusion
+#### `hybrid` — Reciprocal Rank Fusion
 
 Default mode is RRF, `Σ wᵢ / (k + rankᵢ)`, which is scale-free and needs only
 the orderings. A linear **score blend** is also available (`mode="score"`).
 
-### `popularity` — the control
+#### `popularity` — the control
 
 Non-personalised leaderboard. Included deliberately: a personalised model that
 cannot beat it is not personalising, it is ranking by date.
 
-### How the fusion weights are chosen
+#### How the fusion weights are chosen
 
 Grid-searched over 63 combinations on a **validation** slice that sits strictly
 between training and test. The test slice is only ever read to produce the final
@@ -195,7 +341,7 @@ everyone. If your objective really is pure NDCG, set
 
 ---
 
-## Evaluation
+### Evaluation
 
 **The split is temporal, per user, and leak-free.** Each user's last `N`
 positive events are held out and cut chronologically — the older slice becomes
@@ -239,7 +385,7 @@ pairwise Jaccard) and **intra-list diversity**.
 
 ---
 
-## Results
+### Results
 
 1,500 users · 800 products · 117,333 events · 63-trial weight grid ·
 NDCG@10 on the held-out test slice · model version `b421075e6b77`.
@@ -287,11 +433,11 @@ returning 10 random items scores NDCG@10 ≈ 0.007 in that setting. The hybrid a
 
 ---
 
-## API
+### API
 
 Base path `/api/v1`. Interactive schema at `/docs`.
 
-### Recommendations
+#### Recommendations
 
 ```http
 POST /recommendations
@@ -345,7 +491,7 @@ across runs, single-digit after the first call warms the profile cache).
 `strategy` ∈ `hybrid` · `collaborative` · `content` · `popularity`.
 `GET /users/{user_id}/recommendations` is a query-string convenience wrapper.
 
-### Endpoints
+#### Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -366,7 +512,7 @@ across runs, single-digit after the first call warms the profile cache).
 | `POST` | `/admin/reload` | Hot-reload the bundle from disk |
 | `GET` | `/admin/train/status` | Retrain progress |
 
-### Real-time feedback loop
+#### Real-time feedback loop
 
 ```http
 POST /events
@@ -381,7 +527,7 @@ profile, so **the next recommendation request already reflects it** — no
 retrain, no reload. Asserted by
 `tests/test_api.py::test_event_changes_the_next_recommendation`.
 
-### Serving behaviour
+#### Serving behaviour
 
 - **Cold start never returns an empty list.** Unknown users fall through to the
   popularity component and are served a ranked list with `cold_start: true`.
@@ -392,7 +538,7 @@ retrain, no reload. Asserted by
 
 ---
 
-## Configuration
+### Configuration
 
 All settings are environment variables or lines in `.env` (see `.env.example`).
 
@@ -416,7 +562,7 @@ All settings are environment variables or lines in `.env` (see `.env.example`).
 
 ---
 
-## Testing
+### Testing
 
 ```bash
 python -m pytest -q          # 184 tests, ~50s
@@ -445,7 +591,7 @@ line coverage:
 - **API tests run against the real app** with a genuinely trained bundle — no
   mocks of the models or the store.
 
-### Bugs these caught
+#### Bugs these caught
 
 Recorded because each produced plausible output rather than an error, which is
 what makes them worth documenting:
@@ -465,7 +611,7 @@ what makes them worth documenting:
 
 ---
 
-## Design notes
+### Design notes
 
 - **Synchronous pymongo behind async FastAPI.** The models are CPU-bound
   sparse-matrix work with no natural async boundary, so endpoints dispatch to a
@@ -490,7 +636,7 @@ what makes them worth documenting:
 
 ---
 
-## Honest limitations
+### Honest limitations
 
 **The data is synthetic and the results are not a performance claim.** The
 generator has real latent structure and the evaluation protocol is sound, so
@@ -533,7 +679,7 @@ Specific things that are missing or weak:
   pins the development environment; the Docker image installs from the loose
   `requirements.txt`.
 
-### If you take one thing from this
+#### If you take one thing from this
 
 The evaluation protocol is the durable part, not the model numbers. A temporal
 per-user split with an explicit cutoff, positive-only ground truth, already-seen
@@ -544,7 +690,7 @@ trade-off decision, not a clean win.
 
 ---
 
-## Docker
+### Docker
 
 ```bash
 docker compose up --build
