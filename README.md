@@ -12,7 +12,7 @@ Python 3.10+ · FastAPI · Scikit-learn · Pandas · SciPy · MongoDB (pymongo)
 
 ## In plain terms
 
-> This section is the conceptual overview — what problem is being solved, why
+> This section is the conceptual overview what problem is being solved, why
 > there are four approaches, and how any of it is verified. Everything below it
 > is the technical detail: architecture, model internals, metrics, and the full
 > results table.
@@ -22,7 +22,7 @@ Python 3.10+ · FastAPI · Scikit-learn · Pandas · SciPy · MongoDB (pymongo)
 Consider an online store. It holds 800 products, and it holds a log of what each
 shopper has done: viewed, added to basket, wishlisted, bought.
 
-Someone buys **Nike Air Running Shoes — breathable, blue**.
+Someone buys **Nike Air Running Shoes: breathable, blue**.
 
 The question the system answers is: *of these 800 products, which other ten
 should this person be shown?*
