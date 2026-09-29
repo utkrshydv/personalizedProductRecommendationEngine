@@ -1,0 +1,36 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017
+      MONGO_DB: reco
+      # The container should not silently serve from memory if Mongo dies.
+      ALLOW_MEMORY_FALLBACK: "false"
+      ENVIRONMENT: docker
+    volumes:
+      - artifacts:/srv/app/artifacts
+      - data:/srv/app/data
+
+volumes:
+  mongo-data:
+  artifacts:
+  data:

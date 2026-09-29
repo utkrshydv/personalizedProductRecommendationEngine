@@ -1,0 +1,28 @@
+[project]
+name = "reco-engine"
+version = "1.0.0"
+description = "Personalized product recommendation engine: content-based + collaborative filtering, offline evaluation, FastAPI serving."
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]
+ignore = [
+    # FastAPI's dependency-injection idiom is `Depends()` in an argument default.
+    # It is the documented pattern, not a bug.
+    "B008",
+    # `from __future__ import annotations` is used throughout.
+    "UP010",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests unpack results they only partially care about.
+"tests/*" = ["RUF059", "RUF015"]

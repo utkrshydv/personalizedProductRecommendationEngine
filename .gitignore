@@ -1,0 +1,143 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Secrets & local configuration
+# `.env` holds a real MONGO_URI (and would hold Atlas credentials). Only the
+# template is tracked.
+# ─────────────────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials.json
+service-account*.json
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generated data & model artifacts
+#
+# These are build outputs, not source. The model bundle is a binary joblib
+# pickle whose contents change with every retrain, so committing it creates
+# large, constantly-conflicting diffs and lets a stale bundle reach production.
+# Reproduce with: python -m scripts.ingest --generate && python -m scripts.train
+# ─────────────────────────────────────────────────────────────────────────────
+artifacts/
+!artifacts/.gitkeep
+data/
+!data/.gitkeep
+*.joblib
+*.pkl
+*.pickle
+*.parquet
+*.feather
+*.onnx
+*.h5
+*.pt
+*.pth
+*.ckpt
+
+# Evaluation / tuning reports produced by the CLI
+*_metrics.json
+*_report.csv
+*_report.html
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Python
+# ─────────────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+.installed.cfg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# Packaging / build backends
+.tox/
+.nox/
+.hatch/
+pdm.lock
+poetry.lock
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test, lint & type-check caches and reports
+# ─────────────────────────────────────────────────────────────────────────────
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.pyre/
+.pytype/
+.cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+nosetests.xml
+junit*.xml
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notebooks
+# ─────────────────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs & runtime output
+# ─────────────────────────────────────────────────────────────────────────────
+*.log
+logs/
+*.pid
+*.sock
+*.pid.lock
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker / compose
+#
+# Named volumes hold the Mongo data directory and model artifacts. Bind mounts
+# that shadow source directories are equally dangerous to commit.
+# ─────────────────────────────────────────────────────────────────────────────
+docker-compose.override.yml
+docker-compose.*.override.yml
+.dockerignore.bak
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Editor & OS
+# ─────────────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Databases & local tooling
+# ─────────────────────────────────────────────────────────────────────────────
+*.sqlite
+*.sqlite3
+*.db
+.mongo/
+mongodump/
